@@ -889,12 +889,13 @@ async function openBoard(slug) {
   render(); renderPalette(); queueColors();
   refreshBoardList();
 }
-async function newBoard() {
+async function newBoard(e) {
+  const fromClick = !!(e && e.type === "click");
   const slug = "board-" + Date.now().toString(36);
   await api.put(slug, { name: "Untitled board", items: [] });
   $("#boardsPanel").hidden = true;
   await openBoard(slug);
-  $("#boardName").select();
+  if (fromClick) $("#boardName").select();
 }
 
 /* ---------------- adding */
@@ -1191,7 +1192,7 @@ $("#boardsPanel").addEventListener("click", e => {
   if (e.target.id === "boardsPanel") { $("#boardsPanel").hidden = true; return; }
   const card = e.target.closest(".bcard");
   if (!card) return;
-  if (card.dataset.new !== undefined) return newBoard();
+  if (card.dataset.new !== undefined) return newBoard(e);
   $("#boardsPanel").hidden = true;
   if (card.dataset.slug !== state.slug) openBoard(card.dataset.slug);
 });
