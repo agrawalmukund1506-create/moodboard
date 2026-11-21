@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Moodboard</title>
+<script>try { const t = localStorage.getItem("moodboard:theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap">
@@ -79,6 +80,7 @@ button { cursor: pointer; }
 .btn .count { font-size: 12.5px; color: var(--muted); }
 .btn.solid { background: var(--fg); color: var(--bg); }
 .btn.solid .count { color: inherit; }
+.btn svg { width: 18px; height: 18px; flex: none; }
 
 .title-wrap { display: grid; justify-items: start; }
 #boardName {
@@ -385,6 +387,7 @@ button { cursor: pointer; }
       Moodboard
     </div>
     <div class="actions">
+      <button id="themeBtn" class="btn" type="button"></button>
       <button id="openBoards" class="btn" type="button">Boards <span class="count" id="boardCount">0</span></button>
       <button id="copyLinks" class="btn" type="button" title="Copy every source link on this board">Copy links</button>
       <button id="newBoard" class="btn solid" type="button">New board</button>
@@ -1190,6 +1193,25 @@ $("#deleteBoard").onclick = async () => {
   if (boards.length) openBoard(boards[0].slug); else newBoard();
   toast("Board deleted. Files you dropped stay in the media folder.");
 };
+/* light / dark: follows the system until you pick one, then remembers it in this browser */
+const SUN = `<svg class="ink-svg" viewBox="0 0 24 24" aria-hidden="true"><g filter="url(#rough)"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></g></svg>`;
+const MOON = `<svg class="ink-svg" viewBox="0 0 24 24" aria-hidden="true"><path filter="url(#rough)" d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>`;
+const darkQuery = matchMedia("(prefers-color-scheme: dark)");
+const isDark = () => (document.documentElement.dataset.theme || (darkQuery.matches ? "dark" : "light")) === "dark";
+function paintThemeBtn() {
+  const d = isDark(), label = d ? "Switch to light mode" : "Switch to dark mode";
+  $("#themeBtn").innerHTML = d ? `${SUN}Light` : `${MOON}Dark`;
+  $("#themeBtn").setAttribute("aria-label", label);
+  $("#themeBtn").title = label;
+}
+$("#themeBtn").onclick = () => {
+  const t = isDark() ? "light" : "dark";
+  document.documentElement.dataset.theme = t;
+  store.set("moodboard:theme", t);
+  paintThemeBtn();
+};
+darkQuery.addEventListener("change", paintThemeBtn);
+paintThemeBtn();
 window.addEventListener("resize", relayoutSoon);
 new IntersectionObserver(([e]) => $("#toolbar").classList.toggle("stuck", e.intersectionRatio === 0)).observe($(".masthead"));
 
