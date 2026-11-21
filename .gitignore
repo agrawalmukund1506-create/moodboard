@@ -1,0 +1,6 @@
+# Your boards, dropped files and the image cache stay on your Mac
+boards/
+media/
+.cache/
+.DS_Store
+__pycache__/
