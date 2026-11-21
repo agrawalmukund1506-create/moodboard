@@ -12,7 +12,8 @@ Paste links or drop files, and see every image, loop and film on one wall. Each 
 | Google Sheets shared as "Anyone with the link" | ✓ | ✓ |
 | CSV files | ✓ | ✓ |
 | Dropped image and video files | ✓ saved in your browser | ✓ saved to `media/` |
-| Pinterest, Dribbble and other page links | Drag the image in instead | ✓ finds the image |
+| Pinterest pins and boards | ✓ | ✓ |
+| Dribbble, Behance and other page links | Drag the image in instead | ✓ finds the image |
 | Excel (.xlsx) files | Export as CSV instead | ✓ |
 | Palette colors | From hosts that allow it (Wikimedia, YouTube, Vimeo…) | From every image |
 | Where boards are saved | This browser only | `boards/` as JSON files |

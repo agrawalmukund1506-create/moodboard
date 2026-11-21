@@ -185,7 +185,7 @@ def _int(v):
 def safe_resolve(entry):
     url = entry["url"]
     try:
-        d = resolve(url)
+        d = entry.get("item") or resolve(url)
     except Exception as e:
         d = item("link", url, "", title=urlparse(url).netloc, error=str(e))
     if entry.get("caption"):
@@ -264,11 +264,51 @@ def xlsx_entries(data):
     return [{"url": u} for u in urls]
 
 
+PIN_RESERVED = {"pin", "search", "ideas", "today", "explore", "settings", "business", "_", "categories", "videos", "topics"}
+
+
+def pinterest_board(u):
+    """('user', 'board') for a Pinterest board link, else None."""
+    p = urlparse(u)
+    if not re.search(r"(^|\.)pinterest\.[a-z.]+$", p.netloc, re.I):
+        return None
+    seg = [unquote(x) for x in p.path.split("/") if x]
+    if len(seg) >= 2 and seg[0].lower() not in PIN_RESERVED:
+        return seg[0], seg[1]
+    return None
+
+
+def pinterest_board_entries(user, board):
+    """Every pin on a public board, through Pinterest's widget endpoint (up to ~50)."""
+    d = fetch_json("https://widgets.pinterest.com/v3/pidgets/boards/%s/%s/pins/" % (quote(user), quote(board)))
+    if d.get("status") != "success" or not d.get("data"):
+        raise ValueError("That Pinterest board is private or doesn't exist.")
+    out = []
+    for p in d["data"].get("pins", []):
+        imgs = sorted((p.get("images") or {}).values(), key=lambda i: i.get("width", 0), reverse=True)
+        if not imgs:
+            continue
+        im = imgs[0]
+        url = "https://www.pinterest.com/pin/%s/" % p["id"]
+        out.append({"url": url, "item": item("image", url, im["url"].replace("/564x/", "/736x/"),
+                                             title=(p.get("description") or "").strip()[:140],
+                                             provider="Pinterest", w=im.get("width"), h=im.get("height"))})
+    return out
+
+
 def expand(urls):
-    """Turn a mixed list of links (some of them sheets) into entries."""
+    """Turn a mixed list of links (some of them sheets or Pinterest boards) into entries."""
     entries, notes = [], []
     for u in urls:
-        if "docs.google.com/spreadsheets" in u:
+        board = None if "/pin/" in u else pinterest_board(u)
+        if board:
+            try:
+                got = pinterest_board_entries(*board)
+                entries.extend(got)
+                notes.append("Read %d pins from the board." % len(got))
+            except Exception as e:
+                notes.append(str(e))
+        elif "docs.google.com/spreadsheets" in u:
             try:
                 got = sheet_entries(u)
                 entries.extend(got)

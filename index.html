@@ -609,6 +609,48 @@ function sheetEntries(u) {
     document.head.appendChild(s);
   });
 }
+// Pinterest's widget endpoint answers as a script too, so pins and boards work without a server.
+function jsonp(url, ms = 12000) {
+  return new Promise((res, rej) => {
+    const cb = "__mood" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const s = document.createElement("script");
+    const done = () => { delete window[cb]; s.remove(); clearTimeout(t); };
+    const t = setTimeout(() => { done(); rej(new Error("timeout")); }, ms);
+    window[cb] = d => { done(); res(d); };
+    s.onerror = () => { done(); rej(new Error("failed")); };
+    s.src = url + (url.includes("?") ? "&" : "?") + "callback=" + cb;
+    document.head.appendChild(s);
+  });
+}
+const PIN_RE = /pinterest\.[a-z.]+\/pin\/(?:[\w-]*--)?(\d{6,})/i;
+const PIN_RESERVED = new Set(["pin", "search", "ideas", "today", "explore", "settings", "business", "_", "categories", "videos", "topics"]);
+function pinterestBoard(u) {
+  try {
+    const p = new URL(u);
+    if (!/(^|\.)pinterest\.[a-z.]+$/i.test(p.host)) return null;
+    const seg = p.pathname.split("/").filter(Boolean);
+    return seg.length >= 2 && !PIN_RESERVED.has(seg[0].toLowerCase()) ? seg.slice(0, 2).map(decodeURIComponent) : null;
+  } catch { return null; }
+}
+function pinItem(p, url) {
+  const im = Object.values(p.images || {}).sort((a, b) => b.width - a.width)[0];
+  if (!im) return null;
+  const base = { url, provider: "Pinterest", title: (p.description || "").trim().slice(0, 140) };
+  const vids = p.videos && p.videos.video_list ? Object.values(p.videos.video_list).filter(v => /\.mp4(\?|$)/.test(v.url || "")) : [];
+  const v = vids.sort((a, b) => b.width - a.width)[0];
+  if (v) return { ...base, kind: "video", src: v.url, poster: im.url, w: v.width, h: v.height };
+  return { ...base, kind: "image", src: im.url, w: im.width, h: im.height };
+}
+async function pinterestPin(u, id) {
+  const d = await jsonp(`https://widgets.pinterest.com/v3/pidgets/pins/info/?pin_ids=${id}`);
+  const p = d && d.status === "success" && d.data && d.data[0];
+  return p ? pinItem(p, u) : null;
+}
+async function pinterestBoardEntries([user, board]) {
+  const d = await jsonp(`https://widgets.pinterest.com/v3/pidgets/boards/${encodeURIComponent(user)}/${encodeURIComponent(board)}/pins/`);
+  if (!d || d.status !== "success" || !d.data) throw new Error("That Pinterest board is private or doesn't exist.");
+  return d.data.pins.map(p => pinItem(p, `https://www.pinterest.com/pin/${p.id}/`)).filter(Boolean).map(item => ({ url: item.url, item }));
+}
 function probeImage(u) {
   return new Promise(res => {
     const i = new Image();
@@ -633,6 +675,8 @@ async function resolveInBrowser(url) {
       return { kind: "embed", url: u, src: o.thumbnail_url, embed: `https://player.vimeo.com/video/${m[1]}?autoplay=1`, title: o.title, provider: "Vimeo", w: o.width, h: o.height };
     } catch {}
   }
+  m = u.match(PIN_RE);
+  if (m) { try { const pin = await pinterestPin(u, m[1]); if (pin) return pin; } catch {} }
   m = u.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:.*&)?id=)([\w-]{20,})/);
   if (m) return { kind: "embed", url: u, src: `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1600`, embed: `https://drive.google.com/file/d/${m[1]}/preview`, provider: "Drive" };
   let path = "", host = "";
@@ -649,13 +693,16 @@ async function resolveInBrowser(url) {
 }
 async function resolveEntriesInBrowser(entries, notes = []) {
   const items = await mapLimit(entries, 6, async e => {
-    const d = await resolveInBrowser(e.url);
+    const d = e.item || await resolveInBrowser(e.url);
     if (e.caption) d.caption = e.caption;
     if (e.tag) d.tag = e.tag;
     return d;
   });
-  const pages = items.filter(i => i.kind === "link").length;
-  if (pages) notes.push(`${pages} page link${pages > 1 ? "s" : ""} (like Pinterest or Behance) need the local version to find the image. Drag the image itself in instead.`);
+  const links = items.filter(i => i.kind === "link");
+  const short = links.filter(i => /(^|\/\/)(www\.)?pin\.it\//.test(i.url)).length;
+  const pages = links.length - short;
+  if (short) notes.push(`pin.it short links can't be opened here. Open the pin and paste its full pinterest.com address instead.`);
+  if (pages) notes.push(`${pages} page link${pages > 1 ? "s" : ""} (like Behance or Dribbble) need the local version to find the image. Drag the image itself in instead.`);
   return { items, notes };
 }
 const staticAPI = {
@@ -679,6 +726,12 @@ const staticAPI = {
   async resolve(urls) {
     const entries = [], notes = [];
     for (const u of urls) {
+      const board = !PIN_RE.test(u) && pinterestBoard(u);
+      if (board) {
+        try { const got = await pinterestBoardEntries(board); entries.push(...got); notes.push(`Read ${got.length} pins from the board.`); }
+        catch (e) { notes.push(e.message); }
+        continue;
+      }
       if (!u.includes("docs.google.com/spreadsheets")) { entries.push({ url: u }); continue; }
       try { const got = await sheetEntries(u); entries.push(...got); notes.push(`Read ${got.length} links from the sheet.`); }
       catch (e) { notes.push(e.message); }
@@ -793,7 +846,8 @@ function renderPalette() {
   if (!pal.length) {
     wrap.hidden = !state.items.length;
     $("#palette").className = "palette empty-pal"; $("#palette").innerHTML = "";
-    $("#paletteLbl").textContent = "Reading colors…";
+    const reading = state.items.some(it => colorSource(it) && !it.colors);
+    $("#paletteLbl").textContent = reading ? "Reading colors…" : "No palette: the sites these images come from don't let the browser read their colors. The local version can.";
     return;
   }
   wrap.hidden = false;
